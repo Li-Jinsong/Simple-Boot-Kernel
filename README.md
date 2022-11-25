@@ -2,7 +2,7 @@
 A really simple toy OS that can be done in a few hours.
 
 ### Step 1 简单引导启动程序
-设置软盘启动，软盘映像文件选择 [boot.img](step1\boot.img)<br>
+设置软盘启动，软盘映像文件选择 [boot.img](step1/boot.img)<br>
 启动后可看到下面界面，并听到蜂鸣器响声。
 （若虚拟机为bochs则听不到，这里用的是VMware）
 
@@ -11,7 +11,7 @@ A really simple toy OS that can be done in a few hours.
 ### Step 2 简单多任务操作系统
 本操作系统参考了Linux-0.00，具体网址点击 [Linux.old](http://oldlinux.org/Linux.old/bochs/)<br>
 
-设置软盘启动，软盘映像文件选择 [SongOS.img](step2\SongOS.img)<br>
+设置软盘启动，软盘映像文件选择 [SongOS.img](step2/SongOS.img)<br>
 启动后可看到下面界面，
 
 ![image](SongOS_1.png)
