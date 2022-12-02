@@ -7,7 +7,7 @@ LDT1_SEL    = 0x38
 .global startup_32
 .text
 startup_32:
-    movl $0x10,%eax
+    movl $0x10,%eax     # 0x10是数据段（在boot.s文件中定义）的选择子
     mov %ax,%ds
 	lss init_stack,%esp
 
@@ -24,29 +24,29 @@ startup_32:
     movb $0x36, %al         # al中是控制字
     movl $0x43, %edx        # 端口是0x43
     outb %al, %dx           # 把al中的控制字写入端口0x43
-    movl $397727, %eax      # timer frequency 10 HZ 
+    movl $397727, %eax      # timer frequency 3HZ 
     movl $0x40, %edx        # 端口是0x40
     outb %al, %dx           # 先写低字节
     movb %ah, %al           # 再写高字节
     outb %al, %dx
 
-# 安装定时中断门描述符和系统调用陷阱门描述符
+# 在新的位置重新设置 IDT 和 GDT 表。
     movl $0x00080000, %eax 
-    movw $timer_interrupt, %ax
-    movw $0x8E00, %dx
-    movl $0x08, %ecx        # The PC default timer int.
-    lea idt(,%ecx,8), %esi
+    movw $timer_interrupt, %ax  # 设置定时中断门描述符。取定时中断处理程序地址。
+    movw $0x8E00, %dx           # 中断门类型是 14（屏蔽中断），特权级 0 或硬件使用。
+    movl $0x08, %ecx            # 开机时 BIOS 设置的时钟中断向量号 8。这里直接使用
+    lea idt(,%ecx,8), %esi      # 把 IDT 描述符 0x08 地址放入 ESI 中，然后设置该描述符。
     movl %eax,(%esi) 
     movl %edx,4(%esi)
 
-    movw $system_interrupt, %ax
-    movw $0xef00, %dx
-    movl $0x80, %ecx
-    lea idt(,%ecx,8), %esi
+    movw $system_interrupt, %ax # 设置系统调用陷阱门描述符。取系统调用处理程序地址。
+    movw $0xef00, %dx           # 陷阱门类型是 15，特权级 3 的程序可执行。
+    movl $0x80, %ecx            # 系统调用向量号是 0x80。
+    lea idt(,%ecx,8), %esi      # 把 IDT 描述符项 0x80 地址放入 ESI 中，然后设置该描述符。
     movl %eax,(%esi) 
     movl %edx,4(%esi)
 
-# 开始执行任务0
+# 开始执行任务0，在堆栈中人工建立中断返回时的场景。
     pushfl
     andl $0xffffbfff, (%esp)
     popfl
@@ -54,23 +54,27 @@ startup_32:
     ltr %ax
     movl $LDT0_SEL, %eax
     lldt %ax 
-    movl $0, current
-    sti
+    movl $0, current            # 把当前任务号 0 保存在 current 变量中。
+    sti                         # 现在开启中断，并在栈中营造中断返回时的场景。
     pushl $0x17
     pushl $init_stack
     pushfl
     pushl $0x0f
     pushl $task0
     iret
+
 /**********GDT & IDT**********/	
+# 使用 6 字节操作数 lgdt_opcode 设置 GDT 表位置和长度。
 setup_gdt:
     lgdt lgdt_opcode
     ret
+# 定义了一个长指针（段选择符：过程入口点偏移值），当发生中断的时候，处理器使用这个长指针把程序执行权转移到中断处理过程中。
+# 把所有 256 个中断门描述符设置为使用默认处理过程。
 setup_idt:
-    lea ignore_int,%edx	    # 把ignore_int处的有效地址传给edx
-    movl $0x00080000,%eax   #  段选择符（=0x08，索引1，内核代码段）组装完毕。
-    movw %dx,%ax            # 过程入口点偏移值15-0组装完毕。
-    movw $0x8E00,%dx        #  edx的低16位组装完毕
+    lea ignore_int,%edx	    
+    movl $0x00080000,%eax   
+    movw %dx,%ax            
+    movw $0x8E00,%dx        
     lea idt,%edi
     mov $256,%ecx
 rp_sidt:
@@ -82,6 +86,7 @@ rp_sidt:
     lidt lidt_opcode
     ret
 /**********打印字符程序**********/
+# 显示字符子程序。取当前光标位置并把 AL 中的字符显示在屏幕上。
 write_char:
     push %gs
     pushl %ebx
@@ -102,28 +107,30 @@ write_char:
     ret
 /**********三个中断处理程序**********/
 .align 2
+# ignore_int 是默认的中断处理程序，若系统产生了其他中断，则会在屏幕上显示一个字符'C'。
 ignore_int:
     push %ds
     pushl %eax
-    movl $0x10, %eax
-    mov %ax, %ds            # 上一行和此行用内核数据段加载ds
-    movl $67, %eax          # 打印字符'c'，实际上用AL来传参
-    call write_char         # 调用过程 write_char
+    movl $0x10, %eax        # 首先让 DS 指向内核数据段，因为中断程序属于内核。
+    mov %ax, %ds            
+    movl $67, %eax          # 在 AL 中存放字符'C'
+    call write_char         # 调用 write_char
     popl %eax
     pop %ds
     iret
 .align 2
+# 定时中断处理程序。主要执行任务切换操作。
 timer_interrupt:
     push %ds
     pushl %eax
-    movl $0x10, %eax        # 0x10是内核数据段的选择子
+    movl $0x10, %eax        
     mov %ax, %ds
     movb $0x20, %al
-    outb %al, $0x20         # 向8259发送中断结束(EOI)命令，端口是0x20, 命令字是0x20,不用深究
-    movl $1, %eax           # eax=1
-    cmpl %eax, current
+    outb %al, $0x20         
+    movl $1, %eax           
+    cmpl %eax, current      # 判断当前任务，若是任务 1 则去执行任务 0，或反之。
     je 1f                   # 相等跳转到1处，切换到任务0
-    movl %eax, current      # current = 1
+    movl %eax, current      
     ljmp $TSS1_SEL, $0      # 切换到任务1
     jmp 2f
 1:  movl $0, current   
@@ -132,6 +139,7 @@ timer_interrupt:
     pop %ds
     iret
 .align 2
+# 系统调用中断 int 0x80 处理程序（显示字符）。
 system_interrupt:           # 0x80系统调用，把AL中的字符打印到屏幕上
     push %ds
     pushl %edx
@@ -153,26 +161,26 @@ scr_loc:.long 0         # 代码中留出了4字节存放位置
 
 .align 2
 lidt_opcode:
-    .word 256*8-1       # idt contains 256 entries
-    .long idt           # This will be rewrite by code. 
+    .word 256*8-1       
+    .long idt            
 lgdt_opcode:
     .word (end_gdt-gdt)-1   
-    .long gdt           # This will be rewrite by code.
+    .long gdt           
 
 .align 8
-idt:    .fill 256,8,0   
+idt:    .fill 256,8,0   # IDT 空间。共 256 个门描述符，每个 8 字节，占用 2KB。
 gdt:
+    # 各段描述符
     .quad 0x0000000000000000    
     .quad 0x00c09a00000007ff    
     .quad 0x00c09200000007ff    
     .quad 0x00c0920b80000002    
-
-    .word 0x0068, tss0, 0xe900, 0x0 # TSS0 descr 0x20
-    .word 0x0040, ldt0, 0xe200, 0x0 # LDT0 descr 0x28
-    .word 0x0068, tss1, 0xe900, 0x0 # TSS1 descr 0x30
-    .word 0x0040, ldt1, 0xe200, 0x0 # LDT1 descr 0x38
+    .word 0x0068, tss0, 0xe900, 0x0
+    .word 0x0040, ldt0, 0xe200, 0x0
+    .word 0x0068, tss1, 0xe900, 0x0
+    .word 0x0040, ldt1, 0xe200, 0x0
 end_gdt:
-	.fill 128,4,0
+	.fill 128,4,0       # 初始内核堆栈空间。
 init_stack:             
     .long init_stack
     .word 0x10
@@ -180,8 +188,8 @@ init_stack:
 .align 8
 ldt0:   
     .quad 0x0000000000000000
-    .quad 0x00c0fa00000003ff    # 0x0f
-    .quad 0x00c0f200000003ff    # 0x17
+    .quad 0x00c0fa00000003ff    # 局部代码段描述符，对应选择符是 0x0f。
+    .quad 0x00c0f200000003ff    # 局部数据段描述符，对应选择符是 0x17。
 tss0:   
     .long 0     
     .long krn_stk0, 0x10       
@@ -191,7 +199,7 @@ tss0:
     .long 0, 0, 0, 0, 0, 0     
     .long LDT0_SEL, 0x8000000  
 
-    .fill 128,4,0
+    .fill 128,4,0               # 这是任务 0 的内核栈空间。
 krn_stk0:
 .align 8
 ldt1:   
@@ -212,22 +220,23 @@ tss1:
 krn_stk1:
 /**********任务的1和2的子程序**********/
 task0:
-    movl $0x17, %eax # 0x17是任务0的数据段的选择子
-    movw %ax, %ds    # 因为任务0没有用到局部数据段，所以这两句可以不要
-	movb $2, %ah	 # 设置颜色
-    movb $65, %al    # print 'A' 
-    int $0x80        # 系统调用
-    movl $0xfff, %ecx
-1:  loop 1b          # 为了延时
-    jmp task0        # 死循环
+    movl $0x17, %eax  # 0x17是任务0的数据段的选择子
+    movw %ax, %ds    
+	movb $2, %ah	  # 设置颜色
+    movb $65, %al     # 'A' 
+    int $0x80         # 系统调用，显示A
+    movl $0xfff, %ecx # 执行循环，延时。
+1:  loop 1b           
+    jmp task0         
 task1:
-    movl $0x17, %eax # 0x17是任务1的数据段的选择子
-    movw %ax, %ds    # 因为任务1没有用到局部数据段，所以这两句可以不要
-	movb $1,%ah
-    movb $66, %al    # print 'B' 
-    int $0x80        # 系统调用
-    movl $0xfff, %ecx
-1:  loop 1b          # 为了延时
-    jmp task1        # 死循环
-    .fill 128,4,0
-usr_stk1:            # 任务1用户栈空间
+    movl $0x17, %eax  # 0x17是任务1的数据段的选择子
+    movw %ax, %ds    
+	movb $1,%ah       # 设置颜色
+    movb $66, %al     # 'B' 
+    int $0x80         # 系统调用，显示B
+    movl $0xfff, %ecx # 执行循环，延时。
+1:  loop 1b          
+    jmp task1  
+
+    .fill 128,4,0     # 任务1用户栈空间，每个 4 字节
+usr_stk1:            
