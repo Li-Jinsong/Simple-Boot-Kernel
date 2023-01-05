@@ -1,6 +1,8 @@
 # SongOS
 A really simple toy OS that can be done in a few hours.
 
+参考XJTU OS实验参考书实现，并做了改进和解释说明
+
 完成这个项目只需要基本的OS和汇编知识，是很合适入门的OS项目 ^_^ 
 
 ## 虚拟机运行
