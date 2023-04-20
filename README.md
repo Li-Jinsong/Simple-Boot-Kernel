@@ -3,7 +3,7 @@
 
 A really simple toy OS that can be done in a few hours.
 
-参考 ***XJTU操作系统实验*** 实现，并做了改进和解释说明
+参考 ***XJTU操作系统实验*** 实现，做了改进和解释说明
 
 完成这个项目只需要基本的OS和汇编知识，是很合适入门的OS项目 ^_^ 
 
