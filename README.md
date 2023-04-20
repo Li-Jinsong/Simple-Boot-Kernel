@@ -1,4 +1,6 @@
-# SongOS
+# Simple-Boot-Kernel
+`SongOS`
+
 A really simple toy OS that can be done in a few hours.
 
 参考XJTU OS实验参考书实现，并做了改进和解释说明
